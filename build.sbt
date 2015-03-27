@@ -12,10 +12,6 @@ scalaVersion := "2.10.4"
 
 scalacOptions += "-feature"
 
-//libraryDependencies ++= Seq(
-//  "org.webjars" % "ng-annotate" % "0.15.4-SNAPSHOT"
-//)
-
 resolvers ++= Seq(
   "Typesafe Releases Repository" at "http://repo.typesafe.com/typesafe/releases/",
   Resolver.url("sbt snapshot plugins", url("http://repo.scala-sbt.org/scalasbt/sbt-plugin-snapshots"))(Resolver.ivyStylePatterns),
@@ -24,7 +20,7 @@ resolvers ++= Seq(
   Resolver.mavenLocal
 )
 
-addSbtPlugin("com.typesafe.sbt" % "sbt-js-engine" % "1.0.3-SNAPSHOT")
+addSbtPlugin("com.typesafe.sbt" % "sbt-js-engine" % "1.0.2")
 
 publishMavenStyle := false
 

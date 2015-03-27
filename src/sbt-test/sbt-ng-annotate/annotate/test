@@ -1,0 +1,6 @@
+# Optimize ng-annotate.
+
+> web-stage
+$ exists target/web/stage/js/app.js
+
+> checkAnnotations

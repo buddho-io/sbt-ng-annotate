@@ -6,6 +6,7 @@ import com.typesafe.sbt.jse.{SbtJsEngine, SbtJsTask}
 import com.typesafe.sbt.web.SbtWeb
 import com.typesafe.sbt.web.pipeline.Pipeline
 import sbt._
+import spray.json.{JsString, JsArray, JsBoolean, JsObject}
 
 import scala.collection.immutable
 
@@ -14,7 +15,9 @@ object Import {
   val ngAnnotate = TaskKey[Pipeline.Stage]("ng-annotate", "Adds AngularJS annotations to Javascript sources.")
 
   object NgAnnotateKeys {
-    val buildDir = SettingKey[File]("ng-annotate-build-dir")
+    val appDir = SettingKey[File]("ng-annotate-app-dir", "The top level directory that contains your app javascript files.")
+    val buildDir = SettingKey[File]("ng-annotate-build-dir", "The target directory for the annotated files.")
+    val add = SettingKey[Boolean]("ng-annotate-add")
     val remove = SettingKey[Boolean]("ng-annotate-remove")
     val singleQuotes = SettingKey[Boolean]("ng-annotate-single-quotes", "Use single quotes (') instead of double quotes (\")")
     val regexp = SettingKey[String]("ng-annotate-regexp", "Detect short form myMod.controller(...) if myMod matches regexp.")
@@ -42,60 +45,75 @@ object SbtNgAnnotate extends AutoPlugin {
   import sbt._
 
   override def projectSettings = Seq(
+    appDir := (resourceManaged in ngAnnotate).value / "appdir",
     buildDir := (resourceManaged in ngAnnotate).value / "build",
     excludeFilter in ngAnnotate := HiddenFileFilter,
     includeFilter in ngAnnotate := GlobFilter("*.js"),
-    singleQuotes := false,
+    ngAnnotate := runAnnotater.dependsOn(nodeModules in Assets).value,
+    add := true,
+    remove := false,
+    singleQuotes := true,
     regexp := "^[a-zA-Z0-9_\\$\\.\\s]+$",
-    rename := Array[String](),
     sourceMap := false,
-    sourceRoot := (sourceDirectory in ngAnnotate).value,
-    ngAnnotate := runNgAnnotate.dependsOn(WebKeys.nodeModules in Assets).value
+    resourceManaged in ngAnnotate := webTarget.value / ngAnnotate.key.label
   )
 
+  private def runAnnotater: Def.Initialize[Task[Pipeline.Stage]] = Def.task {
+    mappings =>
 
-  private def runNgAnnotate: Def.Initialize[Task[Pipeline.Stage]] = Def.task { mappings =>
-    val include = (includeFilter in ngAnnotate).value
-    val exclude = (excludeFilter in ngAnnotate).value
-    val ngAnnotateMappings = mappings.filter(f => !f._1.isDirectory && include.accept(f._1) && !exclude.accept(f._1))
+      val include = (includeFilter in ngAnnotate).value
+      val exclude = (excludeFilter in ngAnnotate).value
 
-    SbtWeb.syncMappings(
-      streams.value.cacheDirectory,
-      ngAnnotateMappings,
-      buildDir.value
-    )
-
-    val buildMappings = ngAnnotateMappings.map(o => buildDir.value / o._2)
-
-    val cacheDirectory = streams.value.cacheDirectory / ngAnnotate.key.label
-
-    val runUpdate = FileFunction.cached(cacheDirectory, FilesInfo.hash) { inputFiles =>
-      streams.value.log.info("NGAnnotate")
-
-      val inputFileArgs = inputFiles.map(_.getPath)
-
-      println(inputFiles)
-
-      val allArgs = Seq()
-
-      SbtJsTask.executeJs(
-        state.value,
-        (engineType in ngAnnotate).value,
-        (command in ngAnnotate).value,
-        (nodeModuleDirectories in Assets).value.map(_.getPath),
-        (nodeModuleDirectories in Assets).value.last / "ng-annotate" / "ng-annotate",
-        allArgs,
-        (timeoutPerSource in ngAnnotate).value * ngAnnotateMappings.size,
-        commandArgs.value.to[immutable.Seq]
+      val preMappings = mappings.filter(f => !f._1.isDirectory && include.accept(f._1) && !exclude.accept(f._1))
+      SbtWeb.syncMappings(
+        streams.value.cacheDirectory,
+        preMappings,
+        appDir.value
       )
 
-      println(buildDir.value)
+      val cacheDirectory = streams.value.cacheDirectory / ngAnnotate.key.label
+      val runUpdate = FileFunction.cached(cacheDirectory, FilesInfo.hash) {
+        inputFiles =>
+          streams.value.log("Annotating js with ngAnnotate")
 
-      buildDir.value.***.get.filter(!_.isDirectory).toSet
-    }
+          val sourceFileMappings = JsArray(inputFiles.filter(_.isFile).map { f =>
+            val relativePath = IO.relativize(appDir.value, f).get
+            JsArray(JsString(f.getPath), JsString(relativePath))
+          }.toList).toString()
 
-    val ngAnnotatedMappings = runUpdate(buildMappings.toSet).pair(relativeTo(buildDir.value))
-    (mappings.toSet -- ngAnnotateMappings ++ ngAnnotatedMappings).toSeq
+          val targetPath = buildDir.value.getPath
+
+          val jsOptions = JsObject(
+            "add" -> JsBoolean(add.value),
+            "remove" -> JsBoolean(remove.value),
+            "single_quotes" -> JsBoolean(singleQuotes.value),
+            "regexp" -> JsString(regexp.value),
+            "sourcemap" -> JsBoolean(sourceMap.value)
+          ).toString()
+
+          val shellFile = SbtWeb.copyResourceTo(
+            (resourceManaged in ngAnnotate).value,
+            getClass.getClassLoader.getResource("ng-annotate-shell.js"),
+            streams.value.cacheDirectory / "copy-resource"
+          )
+
+          SbtJsTask.executeJs(
+            state.value,
+            (engineType in ngAnnotate).value,
+            (command in ngAnnotate).value,
+            (nodeModuleDirectories in Plugin).value.map(_.getPath),
+            shellFile,
+            Seq(sourceFileMappings, targetPath, jsOptions),
+            (timeoutPerSource in ngAnnotate).value * preMappings.size
+          )
+
+          buildDir.value.***.get.toSet
+      }
+
+      val a = appDir.value.***.get.toSet
+
+      val postMappings = runUpdate(a).filter(_.isFile).pair(relativeTo(buildDir.value))
+      (mappings.toSet -- preMappings ++ postMappings).toSeq
   }
 
 }
