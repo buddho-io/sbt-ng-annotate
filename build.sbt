@@ -19,7 +19,7 @@ lazy val root = (project in file("."))
     scriptedLaunchOpts <+= version apply { v => s"-Dproject.version=$v" },
 
     bintrayOrganization := Option("buddho"),
-    bintrayPackageLabels := Seq("sbt", "sbt-plugin", "sass"),
+    bintrayPackageLabels := Seq("sbt", "sbt-plugin", "ng-annotate"),
     bintrayReleaseOnPublish in ThisBuild := false,
     bintrayRepository := "sbt-plugins",
     publishMavenStyle := false,
