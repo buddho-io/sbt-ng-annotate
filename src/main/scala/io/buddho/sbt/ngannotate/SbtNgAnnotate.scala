@@ -67,6 +67,7 @@ object SbtNgAnnotate extends AutoPlugin {
       val preMappings = mappings.filter(f => !f._1.isDirectory && include.accept(f._1) && !exclude.accept(f._1))
       SbtWeb.syncMappings(
         streams.value.cacheDirectory,
+        "ngannotate-cache",
         preMappings,
         appDir.value
       )
